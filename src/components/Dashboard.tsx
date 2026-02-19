@@ -9,8 +9,7 @@ import {
     TrendingUp,
     Calendar,
     ChevronDown,
-    X,
-    Percent
+    X
 } from 'lucide-react';
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
@@ -145,7 +144,7 @@ export default function Dashboard() {
 
     // --- Client Side Filtering Logic (KPIs) ---
     const filteredStats = useMemo(() => {
-        if (!data?.salesByAddress) return { revenue: 0, orders: 0, avg: 0, rebate: 0 };
+        if (!data?.salesByAddress) return { revenue: 0, orders: 0, avg: 0 };
 
         const allOrders = Object.values(data.salesByAddress).flatMap(g => g.orders);
 
@@ -170,8 +169,7 @@ export default function Dashboard() {
         return {
             revenue,
             orders: count,
-            avg: count > 0 ? revenue / count : 0,
-            rebate: revenue * 0.06 // 6% Rebate
+            avg: count > 0 ? revenue / count : 0
         };
     }, [data, viewBy, selectedYear]);
 
@@ -380,7 +378,7 @@ export default function Dashboard() {
             </header>
 
             {/* Main KPI Grid */}
-            <div className="grid-cols-4" style={{ gap: '1.5rem', marginBottom: '2rem', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+            <div className="grid-cols-3" style={{ gap: '1.5rem', marginBottom: '2rem', display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
                 <div className="glass-card kpi-card" style={{ padding: '1.5rem', borderLeft: `4px solid ${COLORS[0]}` }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                         <span className="kpi-label">Revenue</span>
@@ -406,15 +404,6 @@ export default function Dashboard() {
                     </div>
                     <div className="kpi-value">{formatCurrency(filteredStats.avg)}</div>
                     <div className="kpi-subtext">Value</div>
-                </div>
-
-                <div className="glass-card kpi-card" style={{ padding: '1.5rem', borderLeft: `4px solid ${COLORS[4]}` }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                        <span className="kpi-label">Rebate (6%)</span>
-                        <Percent size={20} color={COLORS[4]} />
-                    </div>
-                    <div className="kpi-value">{formatCurrency(filteredStats.rebate)}</div>
-                    <div className="kpi-subtext">Earned</div>
                 </div>
             </div>
 
