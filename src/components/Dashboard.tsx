@@ -326,39 +326,60 @@ export default function Dashboard() {
     if (loading) return <div className="full-screen-center"><div className="spinner"></div></div>;
     if (error) return <div className="full-screen-center text-red-500">{error}</div>;
 
-    const generatePDF = (title: string, period: string, tableHead: string[][], tableBody: any[], fileName: string) => {
-        const script1 = document.createElement('script');
-        script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-        script1.onload = () => {
-            const script2 = document.createElement('script');
-            script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js';
-            script2.onload = () => {
-                // @ts-ignore
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF();
+    const loadScript = (src: string, id: string): Promise<void> => {
+        return new Promise((resolve, reject) => {
+            if (document.getElementById(id)) {
+                resolve();
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = src;
+            script.id = id;
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error(`Failed to load script ${src}`));
+            document.body.appendChild(script);
+        });
+    };
 
-                doc.setFontSize(18);
-                doc.text(title, 14, 22);
-                doc.setFontSize(11);
-                doc.setTextColor(100);
+    const generatePDF = async (title: string, period: string, tableHead: string[][], tableBody: any[], fileName: string) => {
+        try {
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'jspdf-script');
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js', 'jspdf-autotable-script');
 
-                doc.text(`Period: ${period}`, 14, 30);
-                doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 38);
+            // @ts-ignore
+            const { jsPDF } = window.jspdf;
+            if (!jsPDF) throw new Error("jsPDF not found");
+            const doc = new jsPDF();
 
-                // @ts-ignore
-                doc.autoTable({
-                    startY: 45,
-                    head: tableHead,
-                    body: tableBody,
-                    theme: 'striped',
-                    headStyles: { fillColor: [13, 148, 136] }
-                });
+            doc.setFontSize(18);
+            doc.text(title, 14, 22);
+            doc.setFontSize(11);
+            doc.setTextColor(100);
 
-                doc.save(fileName);
-            };
-            document.body.appendChild(script2);
-        };
-        document.body.appendChild(script1);
+            doc.text(`Period: ${period}`, 14, 30);
+            doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 38);
+
+            // @ts-ignore
+            if (typeof doc.autoTable !== 'function') {
+                console.error("autoTable plugin not loaded correctly");
+                throw new Error("PDF table plugin failed to load");
+            }
+
+            // @ts-ignore
+            doc.autoTable({
+                startY: 45,
+                head: tableHead,
+                body: tableBody,
+                theme: 'striped',
+                headStyles: { fillColor: [13, 148, 136] }
+            });
+
+            doc.save(fileName);
+        } catch (err: any) {
+            console.error("PDF generation failed:", err);
+            // Non-intrusive error notification if possible, but alert works for debugging
+            alert("Error generating PDF: " + err.message);
+        }
     };
 
     return (
