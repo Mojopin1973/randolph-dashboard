@@ -53,8 +53,8 @@ const COLORS = [
 ];
 
 const MONTHS = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+    'April', 'May', 'June', 'July', 'August', 'September',
+    'October', 'November', 'December', 'January', 'February', 'March'
 ];
 
 export default function Dashboard() {
@@ -62,7 +62,8 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // View State: 'year' (current year) or number (0-11) for specific month
+    // View State: 'year' (current year) or number (0-11) for specific month.
+    // Note: index now corresponds to MONTHS array (0=April, 11=March)
     const [viewBy, setViewBy] = useState<'year' | number>('year');
 
     // Invoice Modal State
@@ -127,7 +128,11 @@ export default function Dashboard() {
     const availableYears = useMemo(() => {
         if (!data?.salesByAddress) return [2026];
         const allOrders = Object.values(data.salesByAddress).flatMap(g => g.orders);
-        const years = new Set(allOrders.map(o => new Date(o.date).getFullYear()));
+        const years = new Set(allOrders.map(o => {
+            const d = new Date(o.date);
+            const orderMonth = d.getMonth(); // 0-indexed (0=Jan)
+            return orderMonth >= 3 ? d.getFullYear() : d.getFullYear() - 1; // Financial year starts April
+        }));
         // Ensure 2026 is always an option even if empty, since that's the target year
         years.add(2026);
         const uniqueYears = Array.from(years).sort((a, b) => b - a);
@@ -153,13 +158,27 @@ export default function Dashboard() {
 
         const filteredOrders = allOrders.filter(order => {
             const d = new Date(order.date);
-            if (d.getFullYear() !== targetYear) return false;
+            const orderYear = d.getFullYear();
+            const orderMonth = d.getMonth(); // 0-indexed (0=Jan)
+
+            // Financial year logic:
+            // If April-Dec, financial year is orderYear.
+            // If Jan-March, financial year is orderYear - 1.
+            // So for "Financial Year 2026", it spans April 2026 to March 2027.
+            // Actually, usually FY 2026/27 starts in April 2026.
+            // Let's assume selecting "2026" means the financial year starting April 2026.
+
+            let financialYear = orderMonth >= 3 ? orderYear : orderYear - 1;
+
+            if (financialYear !== targetYear) return false;
 
             if (viewBy === 'year') {
-                return true; // All months in current year
+                return true;
             } else {
-                // Specific month
-                return d.getMonth() === viewBy;
+                // Specific month from the MONTHS array
+                // MONTHS[0] = April (index 3), MONTHS[9] = January (index 0)
+                const monthIndexInYear = (orderMonth + 9) % 12; // 0=April, 1=May... 9=Jan, 11=March
+                return monthIndexInYear === viewBy;
             }
         });
 
@@ -184,37 +203,39 @@ export default function Dashboard() {
 
         if (typeof viewBy === 'number') {
             // Specific Month View -> Show Days
-            // Get days in selected month
-            const daysInMonth = new Date(targetYear, viewBy + 1, 0).getDate();
+            // Map viewBy (0-11 for April-March) back to actual month (0-11 for Jan-Dec)
+            const actualMonth = (viewBy + 3) % 12;
+            const actualYear = viewBy >= 9 ? targetYear + 1 : targetYear;
+
+            const daysInMonth = new Date(actualYear, actualMonth + 1, 0).getDate();
             for (let i = 1; i <= daysInMonth; i++) {
                 grouped[i.toString()] = 0;
             }
 
             allOrders.forEach(order => {
                 const d = new Date(order.date);
-                if (d.getFullYear() === targetYear && d.getMonth() === viewBy) {
+                if (d.getFullYear() === actualYear && d.getMonth() === actualMonth) {
                     grouped[d.getDate().toString()] += (order.amount || 0);
                 }
             });
         } else {
-            // Year View -> Show All Months (Jan - Dec or Jan - Now)
-            // User asked for "months for each month so far this year, so january is missing".
-            // Ensure we initialize ALL months.
-            MONTHS.forEach(m => grouped[m.substring(0, 3)] = 0); // Jan, Feb...
+            // Year View -> Show All Months in Financial Year order
+            const shortMonths = MONTHS.map(m => m.substring(0, 3));
+            shortMonths.forEach(m => grouped[m] = 0);
 
             allOrders.forEach(order => {
                 const d = new Date(order.date);
-                if (d.getFullYear() === targetYear) {
-                    const m = d.toLocaleString('default', { month: 'short' });
-                    grouped[m] += (order.amount || 0);
+                const orderYear = d.getFullYear();
+                const orderMonth = d.getMonth();
+
+                let financialYear = orderMonth >= 3 ? orderYear : orderYear - 1;
+
+                if (financialYear === targetYear) {
+                    const mShort = d.toLocaleString('default', { month: 'short' });
+                    grouped[mShort] += (order.amount || 0);
                 }
             });
 
-            // If we are looking at a past year, show ALL months.
-            // If current year, maybe slice? But user wanted "Jan" specifically.
-            // Let's just return all 12 months for consistency unless it's the future.
-
-            const shortMonths = MONTHS.map(m => m.substring(0, 3));
             return shortMonths.map(m => ({ name: m, value: grouped[m] }));
         }
 
@@ -237,8 +258,15 @@ export default function Dashboard() {
             // Filter orders for this address
             const validOrders = stats.orders.filter((o: any) => {
                 const d = new Date(o.date);
-                if (d.getFullYear() !== targetYear) return false;
-                if (typeof viewBy === 'number') return d.getMonth() === viewBy;
+                const orderYear = d.getFullYear();
+                const orderMonth = d.getMonth();
+                const financialYear = orderMonth >= 3 ? orderYear : orderYear - 1;
+
+                if (financialYear !== targetYear) return false;
+                if (typeof viewBy === 'number') {
+                    const monthIndexInYear = (orderMonth + 9) % 12;
+                    return monthIndexInYear === viewBy;
+                }
                 return true;
             });
 
@@ -342,7 +370,7 @@ export default function Dashboard() {
                         }}
                     >
                         {availableYears.map(y => (
-                            <option key={y} value={y}>{y}</option>
+                            <option key={y} value={y}>FY {y}/{y - 2000 + 1}</option>
                         ))}
                     </select>
 
@@ -385,7 +413,7 @@ export default function Dashboard() {
                         <TrendingUp size={20} color={COLORS[0]} />
                     </div>
                     <div className="kpi-value">{formatCurrency(filteredStats.revenue)}</div>
-                    <div className="kpi-subtext">Net Sales (Excl. Tax)</div>
+                    <div className="kpi-subtext">Sales (VAT Incl.)</div>
                 </div>
 
                 <div className="glass-card kpi-card" style={{ padding: '1.5rem', borderLeft: `4px solid ${COLORS[1]}` }}>
@@ -438,7 +466,7 @@ export default function Dashboard() {
                 {/* Sales by Delivery Address (Horizontal Bar Chart) */}
                 <div className="glass-card kpi-card" style={{ padding: '1.5rem', minHeight: '600px', backgroundColor: '#f8fafc', border: '1px solid #cbd5e1' }}> {/* Increase container height */}
                     <span className="kpi-label" style={{ marginBottom: '1rem', display: 'block', fontSize: '1.2rem', fontWeight: 700, color: '#000000' }}>
-                        Sales by Address (Excl. Tax)
+                        Sales by Address (VAT Incl.)
                     </span>
                     <div style={{ flex: 1, minHeight: '520px' }}>
                         <ResponsiveContainer width="100%" height="100%">
@@ -472,6 +500,93 @@ export default function Dashboard() {
                 </div>
             </div>
 
+            {/* Location Spend Summary Section */}
+            <div className="glass-card" style={{ padding: '2rem', marginTop: '2rem', borderTop: `4px solid ${COLORS[3]}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Location Spend Summary</h3>
+                    <button
+                        onClick={() => {
+                            const script1 = document.createElement('script');
+                            script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                            script1.onload = () => {
+                                const script2 = document.createElement('script');
+                                script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js';
+                                script2.onload = () => {
+                                    // @ts-ignore
+                                    const { jsPDF } = window.jspdf;
+                                    const doc = new jsPDF();
+
+                                    doc.setFontSize(18);
+                                    doc.text('Location Spend Report', 14, 22);
+                                    doc.setFontSize(11);
+                                    doc.setTextColor(100);
+
+                                    const periodText = viewBy === 'year' ? `Financial Year ${selectedYear}/${selectedYear - 2000 + 1}` : `${MONTHS[viewBy]} ${viewBy >= 9 ? selectedYear + 1 : selectedYear}`;
+                                    doc.text(`Period: ${periodText}`, 14, 30);
+                                    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 38);
+
+                                    const tableData = deliveryBarData.map(item => [
+                                        item.fullName,
+                                        formatCurrency(item.value)
+                                    ]);
+
+                                    // @ts-ignore
+                                    doc.autoTable({
+                                        startY: 45,
+                                        head: [['Location', 'Total Spend (VAT Incl.)']],
+                                        body: tableData,
+                                        theme: 'striped',
+                                        headStyles: { fillColor: [13, 148, 136] }
+                                    });
+
+                                    doc.save(`Randolph_Spend_Report_${periodText.replace(/ /g, '_')}.pdf`);
+                                };
+                                document.body.appendChild(script2);
+                            };
+                            document.body.appendChild(script1);
+                        }}
+                        style={{
+                            backgroundColor: COLORS[0],
+                            color: 'white',
+                            padding: '0.6rem 1.2rem',
+                            borderRadius: '0.5rem',
+                            fontWeight: 600,
+                            fontSize: '0.9rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            border: 'none'
+                        }}
+                    >
+                        Download PDF Report
+                    </button>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ textAlign: 'left', color: '#94a3b8', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #1e293b' }}>
+                                <th style={{ padding: '1rem' }}>Location</th>
+                                <th style={{ padding: '1rem', textAlign: 'right' }}>Total Spend (VAT Incl.)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {deliveryBarData.map((item, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid #1e293b' }}>
+                                    <td style={{ padding: '1rem', fontWeight: 500, color: '#e2e8f0' }}>{item.fullName}</td>
+                                    <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 600, color: COLORS[0] }}>{formatCurrency(item.value)}</td>
+                                </tr>
+                            ))}
+                            {deliveryBarData.length === 0 && (
+                                <tr>
+                                    <td colSpan={2} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No data available for this period.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             {/* Invoices for Period List */}
             <div className="glass-card" style={{ padding: '2rem', marginTop: '2rem' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.25rem', fontWeight: 600 }}>Invoices for Period</h3>
@@ -486,8 +601,15 @@ export default function Dashboard() {
                     {data?.recentInvoices && data.recentInvoices
                         .filter((inv: any) => {
                             const d = new Date(inv.invoice_date || inv.date);
-                            if (d.getFullYear() !== selectedYear) return false;
-                            if (viewBy !== 'year' && d.getMonth() !== viewBy) return false;
+                            const orderYear = d.getFullYear();
+                            const orderMonth = d.getMonth();
+                            const financialYear = orderMonth >= 3 ? orderYear : orderYear - 1;
+
+                            if (financialYear !== selectedYear) return false;
+                            if (viewBy !== 'year') {
+                                const monthIndexInYear = (orderMonth + 9) % 12;
+                                if (monthIndexInYear !== viewBy) return false;
+                            }
                             return true;
                         })
                         .sort((a, b) => new Date(b.invoice_date || b.date).getTime() - new Date(a.invoice_date || a.date).getTime())

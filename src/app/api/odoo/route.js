@@ -44,20 +44,17 @@ export async function GET(request) {
                 const salesByAddress = {};
 
                 invoices.forEach(inv => {
-                    // Robust Untaxed Calculation
-                    let amountUntaxed = inv.amount_untaxed;
-                    if (amountUntaxed === undefined || amountUntaxed === null || amountUntaxed === 0) {
-                        amountUntaxed = (inv.amount_total || 0) - (inv.amount_tax || 0);
-                    }
+                    // Use amount_total (VAT inclusive)
+                    let amountTotal = inv.amount_total || 0;
 
                     // Handle Credit Notes (Refunds) - Negate the amount
                     if (inv.move_type === 'out_refund') {
-                        amountUntaxed = -Math.abs(amountUntaxed);
+                        amountTotal = -Math.abs(amountTotal);
                     } else {
-                        amountUntaxed = Math.abs(amountUntaxed);
+                        amountTotal = Math.abs(amountTotal);
                     }
 
-                    totalRevenue += amountUntaxed;
+                    totalRevenue += amountTotal;
 
                     // Group by Delivery Address
                     const addressName = Array.isArray(inv.partner_shipping_id) ? inv.partner_shipping_id[1] : 'Unknown';
@@ -67,12 +64,12 @@ export async function GET(request) {
                     }
 
                     salesByAddress[addressName].count += 1;
-                    salesByAddress[addressName].total += amountUntaxed;
+                    salesByAddress[addressName].total += amountTotal;
                     salesByAddress[addressName].orders.push({
                         id: inv.id,
                         name: inv.name,
                         date: inv.invoice_date,
-                        amount: amountUntaxed
+                        amount: amountTotal
                     });
                 });
 
@@ -89,21 +86,18 @@ export async function GET(request) {
                     },
                     salesByAddress,
                     recentInvoices: invoices.map(inv => {
-                        let amountUntaxed = inv.amount_untaxed;
-                        if (amountUntaxed === undefined || amountUntaxed === null || amountUntaxed === 0) {
-                            amountUntaxed = (inv.amount_total || 0) - (inv.amount_tax || 0);
-                        }
+                        let amountTotal = inv.amount_total || 0;
 
                         // Negate for list display as well
                         if (inv.move_type === 'out_refund') {
-                            amountUntaxed = -Math.abs(amountUntaxed);
+                            amountTotal = -Math.abs(amountTotal);
                         } else {
-                            amountUntaxed = Math.abs(amountUntaxed);
+                            amountTotal = Math.abs(amountTotal);
                         }
 
                         return {
                             ...inv,
-                            amount_total: amountUntaxed
+                            amount_total: amountTotal
                         };
                     })
                 });
