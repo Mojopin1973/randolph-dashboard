@@ -601,7 +601,7 @@ export default function Dashboard() {
                                             onClick={() => {
                                                 const periodText = viewBy === 'year' ? `Financial Year ${selectedYear}/${selectedYear - 2000 + 1}` : `${MONTHS[viewBy]} ${viewBy >= 9 ? selectedYear + 1 : selectedYear}`;
                                                 const tableHead = [['Ref', 'Date', 'Amount (VAT Incl.)']];
-                                                const tableBody = item.orders
+                                                const tableBody = [...item.orders]
                                                     .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
                                                     .map((o: any) => [o.name, formatDate(o.date), formatCurrency(o.amount)]);
                                                 generatePDF(`Branch Report: ${item.fullName}`, periodText, tableHead, tableBody, `Randolph_${item.name.replace(/ /g, '_')}_Report_${periodText.replace(/ /g, '_')}.pdf`);
