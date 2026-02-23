@@ -122,30 +122,27 @@ export default function Dashboard() {
         }).format(val);
     };
 
-    const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+    const [selectedYear, setSelectedYear] = useState<number>(() => {
+        const today = new Date();
+        // If before April, the current financial year started in the previous calendar year
+        return today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
+    });
 
     // Compute available years from data
     const availableYears = useMemo(() => {
-        if (!data?.salesByAddress) return [2026];
-        const allOrders = Object.values(data.salesByAddress).flatMap(g => g.orders);
+        if (!data?.salesByAddress) return [2025, 2026];
+        const allOrders = Object.values(data.salesByAddress).flatMap(g => (g as any).orders);
         const years = new Set(allOrders.map(o => {
             const d = new Date(o.date);
             const orderMonth = d.getMonth(); // 0-indexed (0=Jan)
             return orderMonth >= 3 ? d.getFullYear() : d.getFullYear() - 1; // Financial year starts April
         }));
-        // Ensure 2026 is always an option even if empty, since that's the target year
+        // Ensure 2025 and 2026 are always options
+        years.add(2025);
         years.add(2026);
         const uniqueYears = Array.from(years).sort((a, b) => b - a);
         return uniqueYears;
     }, [data]);
-
-    // Set default year to 2026 as per user request (or current year)
-    // User explicitly said "I only need figures from 01-01-2026".
-    // We should default to 2026 and allow them to interact if they want, but the data returning is filtered to 2026+.
-
-    // We can keep the "Available Years" logic but it will likely only show 2026 or later now.
-    // If the API only returns 2026+, then availableYears will only be [2026] (or empty if no data).
-    // If empty, let's just default to current year (2026).
 
     // --- Client Side Filtering Logic (KPIs) ---
     const filteredStats = useMemo(() => {
@@ -251,7 +248,7 @@ export default function Dashboard() {
         const customerName = data.customer || '';
 
         // We must aggregate dynamically based on filtering
-        const aggregated: Record<string, number> = {};
+        const aggregated: Record<string, { value: number, orders: any[] }> = {};
         const targetYear = selectedYear;
 
         Object.entries(data.salesByAddress).forEach(([name, stats]) => {
@@ -272,12 +269,12 @@ export default function Dashboard() {
 
             const total = validOrders.reduce((sum: number, o: any) => sum + (o.amount || 0), 0);
             if (total > 0) {
-                aggregated[name] = total;
+                aggregated[name] = { value: total, orders: validOrders };
             }
         });
 
         return Object.entries(aggregated)
-            .map(([name, value]) => {
+            .map(([name, stats]) => {
                 let cleanName = name;
                 if (customerName && cleanName.startsWith(customerName)) {
                     cleanName = cleanName.replace(customerName, '').replace(/^,\s*/, '').trim();
@@ -287,7 +284,8 @@ export default function Dashboard() {
                 return {
                     name: transformAddressName(cleanName),
                     fullName: name,
-                    value: value
+                    value: stats.value,
+                    orders: stats.orders
                 };
             })
             .sort((a, b) => b.value - a.value);
@@ -327,6 +325,41 @@ export default function Dashboard() {
 
     if (loading) return <div className="full-screen-center"><div className="spinner"></div></div>;
     if (error) return <div className="full-screen-center text-red-500">{error}</div>;
+
+    const generatePDF = (title: string, period: string, tableHead: string[][], tableBody: any[], fileName: string) => {
+        const script1 = document.createElement('script');
+        script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        script1.onload = () => {
+            const script2 = document.createElement('script');
+            script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js';
+            script2.onload = () => {
+                // @ts-ignore
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+
+                doc.setFontSize(18);
+                doc.text(title, 14, 22);
+                doc.setFontSize(11);
+                doc.setTextColor(100);
+
+                doc.text(`Period: ${period}`, 14, 30);
+                doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 38);
+
+                // @ts-ignore
+                doc.autoTable({
+                    startY: 45,
+                    head: tableHead,
+                    body: tableBody,
+                    theme: 'striped',
+                    headStyles: { fillColor: [13, 148, 136] }
+                });
+
+                doc.save(fileName);
+            };
+            document.body.appendChild(script2);
+        };
+        document.body.appendChild(script1);
+    };
 
     return (
         <div className="container-max">
@@ -506,44 +539,10 @@ export default function Dashboard() {
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Location Spend Summary</h3>
                     <button
                         onClick={() => {
-                            const script1 = document.createElement('script');
-                            script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-                            script1.onload = () => {
-                                const script2 = document.createElement('script');
-                                script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js';
-                                script2.onload = () => {
-                                    // @ts-ignore
-                                    const { jsPDF } = window.jspdf;
-                                    const doc = new jsPDF();
-
-                                    doc.setFontSize(18);
-                                    doc.text('Location Spend Report', 14, 22);
-                                    doc.setFontSize(11);
-                                    doc.setTextColor(100);
-
-                                    const periodText = viewBy === 'year' ? `Financial Year ${selectedYear}/${selectedYear - 2000 + 1}` : `${MONTHS[viewBy]} ${viewBy >= 9 ? selectedYear + 1 : selectedYear}`;
-                                    doc.text(`Period: ${periodText}`, 14, 30);
-                                    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 38);
-
-                                    const tableData = deliveryBarData.map(item => [
-                                        item.fullName,
-                                        formatCurrency(item.value)
-                                    ]);
-
-                                    // @ts-ignore
-                                    doc.autoTable({
-                                        startY: 45,
-                                        head: [['Location', 'Total Spend (VAT Incl.)']],
-                                        body: tableData,
-                                        theme: 'striped',
-                                        headStyles: { fillColor: [13, 148, 136] }
-                                    });
-
-                                    doc.save(`Randolph_Spend_Report_${periodText.replace(/ /g, '_')}.pdf`);
-                                };
-                                document.body.appendChild(script2);
-                            };
-                            document.body.appendChild(script1);
+                            const periodText = viewBy === 'year' ? `Financial Year ${selectedYear}/${selectedYear - 2000 + 1}` : `${MONTHS[viewBy]} ${viewBy >= 9 ? selectedYear + 1 : selectedYear}`;
+                            const tableHead = [['Location', 'Total Spend (VAT Incl.)']];
+                            const tableBody = deliveryBarData.map(item => [item.fullName, formatCurrency(item.value)]);
+                            generatePDF('Location Spend Report', periodText, tableHead, tableBody, `Randolph_Spend_Report_${periodText.replace(/ /g, '_')}.pdf`);
                         }}
                         style={{
                             backgroundColor: COLORS[0],
@@ -568,6 +567,7 @@ export default function Dashboard() {
                             <tr style={{ textAlign: 'left', color: '#94a3b8', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #1e293b' }}>
                                 <th style={{ padding: '1rem' }}>Location</th>
                                 <th style={{ padding: '1rem', textAlign: 'right' }}>Total Spend (VAT Incl.)</th>
+                                <th style={{ padding: '1rem', textAlign: 'right' }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -575,11 +575,26 @@ export default function Dashboard() {
                                 <tr key={idx} style={{ borderBottom: '1px solid #1e293b' }}>
                                     <td style={{ padding: '1rem', fontWeight: 500, color: '#e2e8f0' }}>{item.fullName}</td>
                                     <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 600, color: COLORS[0] }}>{formatCurrency(item.value)}</td>
+                                    <td style={{ padding: '1rem', textAlign: 'right' }}>
+                                        <button
+                                            onClick={() => {
+                                                const periodText = viewBy === 'year' ? `Financial Year ${selectedYear}/${selectedYear - 2000 + 1}` : `${MONTHS[viewBy]} ${viewBy >= 9 ? selectedYear + 1 : selectedYear}`;
+                                                const tableHead = [['Ref', 'Date', 'Amount (VAT Incl.)']];
+                                                const tableBody = item.orders
+                                                    .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                                    .map((o: any) => [o.name, formatDate(o.date), formatCurrency(o.amount)]);
+                                                generatePDF(`Branch Report: ${item.fullName}`, periodText, tableHead, tableBody, `Randolph_${item.name.replace(/ /g, '_')}_Report_${periodText.replace(/ /g, '_')}.pdf`);
+                                            }}
+                                            style={{ color: COLORS[1], fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', background: 'none', border: 'none', textDecoration: 'underline' }}
+                                        >
+                                            PDF Report
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                             {deliveryBarData.length === 0 && (
                                 <tr>
-                                    <td colSpan={2} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No data available for this period.</td>
+                                    <td colSpan={3} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No data available for this period.</td>
                                 </tr>
                             )}
                         </tbody>
